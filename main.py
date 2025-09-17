@@ -28,30 +28,30 @@ async def fetch_game_data():
 async def presence_task():
     await bot.wait_until_ready()
 
+    import traceback
     while not bot.is_closed():
         try:
             data = await fetch_game_data()
+            # Filter for Combined Arms games
+            ca_games = [game for game in data if game.get("mod", "").lower() == mode_name]
+
+            total_players = sum(game.get("players", 0) for game in ca_games)
+            active_games = [game for game in ca_games if game.get("players", 0) > 0]
+
+            player_description = "players" if total_players != 1 else "player"
+            games_description = "games" if len(active_games) != 1 else "game"
+
+            activity = discord.Activity(
+                type=discord.ActivityType.watching,
+                name=f"{total_players} {player_description} in {len(active_games)} CA {games_description}"
+            )
+            await bot.change_presence(activity=activity)
+
+            await asyncio.sleep(20)  # Update every 20 seconds
         except Exception as e:
-            print(f"Error fetching data: {e}")
+            print(f"[PresenceTask] Unhandled error: {e}")
+            traceback.print_exc()
             await asyncio.sleep(300)  # Wait 5 minutes before retrying
-            continue
-
-        # Filter for Combined Arms games
-        ca_games = [game for game in data if game.get("mod", "").lower() == mode_name]
-
-        total_players = sum(game.get("players", 0) for game in ca_games)
-        active_games = [game for game in ca_games if game.get("players", 0) > 0]
-
-        player_description = "players" if total_players != 1 else "player"
-        games_description = "games" if len(active_games) != 1 else "game"
-
-        activity = discord.Activity(
-            type=discord.ActivityType.watching,
-            name=f"{total_players} {player_description} in {len(active_games)} CA {games_description}"
-        )
-        await bot.change_presence(activity=activity)
-
-        await asyncio.sleep(20)  # Update every 20 seconds
 
 @bot.event
 async def on_ready():
