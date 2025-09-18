@@ -22,7 +22,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def create_current_discord_timestamp():    # use current time zone
     now = datetime.datetime.now(datetime.timezone.utc)
     timestamp = int(now.timestamp())
-    return f"<t:{timestamp}:F>"
+    return f"<t:{timestamp}:R>"
 
 async def fetch_game_data():
     async with aiohttp.ClientSession() as session:
