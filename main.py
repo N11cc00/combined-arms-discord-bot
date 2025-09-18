@@ -19,10 +19,10 @@ channel_id: int = 0
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def create_current_discord_timestamp():    # use current time zone
+def create_current_discord_timestamp(f: str):    # use current time zone
     now = datetime.datetime.now(datetime.timezone.utc)
     timestamp = int(now.timestamp())
-    return f"<t:{timestamp}:R>"
+    return f"<t:{timestamp}:{f}>"
 
 async def fetch_game_data():
     async with aiohttp.ClientSession() as session:
@@ -61,9 +61,9 @@ async def presence_task():
             traceback.print_exc()
             await asyncio.sleep(300)  # Wait 5 minutes before retrying
 
-def create_games_overview_embed(games, show_empty=False, show_outdated=False):
+def create_games_overview_embed(games, timestamp_format="F", show_empty=False, show_outdated=False):
     embed = discord.Embed(
-        title="Combined Arms Games - " + create_current_discord_timestamp(),
+        title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
         color=discord.Color.purple()
     )
 
@@ -163,7 +163,7 @@ async def update_games_message():
         try:
             data = await fetch_game_data()
 
-            embed = create_games_overview_embed(data)
+            embed = create_games_overview_embed(data, timestamp_format="R")
             await message.edit(content=None, embed=embed)
             await asyncio.sleep(30)
         except Exception as e:
@@ -300,7 +300,7 @@ async def games(interaction: discord.Interaction, show_outdated: bool = False, s
         await interaction.followup.send(f"Error fetching data: {e}")
         return
 
-    embed = create_games_overview_embed(data, show_empty=show_empty, show_outdated=show_outdated)
+    embed = create_games_overview_embed(data, timestamp_format="F", show_empty=show_empty, show_outdated=show_outdated)
 
     await interaction.followup.send(embed=embed)
 
