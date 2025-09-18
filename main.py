@@ -175,7 +175,7 @@ async def update_games_message():
 async def on_ready():
     print(f"Logged in as {bot.user}")
     try:
-        synced = await bot.tree.sync()
+        synced = await bot.tree.sync(guild=None)
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Error syncing commands: {e}")
