@@ -1,4 +1,4 @@
-# Combined Arms Discord Bot
+# Combined Arms Discord Bot (aka. *Watcher*)
 Provides some useful commands and updates its presence texts. Requirements.txt provided.
 ## Commands
 - `/games` - gives an overview over current CA games with optional parameters
