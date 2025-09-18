@@ -174,6 +174,17 @@ async def update_games_message():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
+
+    # Clear all guild-specific commands used for testing to avoid duplicates/dead commands
+    guilds = [guild.id for guild in bot.guilds]
+    for guildId in guilds:
+        guild = discord.Object(id=guildId)
+        print(f'Deleting commands from {guildId}.....')
+        bot.tree.clear_commands(guild=guild,type=None)
+        await bot.tree.sync(guild=guild)
+        print(f'Deleted commands from {guildId}!')
+        continue
+
     try:
         synced = await bot.tree.sync(guild=None)
         print(f"Synced {len(synced)} slash commands.")
