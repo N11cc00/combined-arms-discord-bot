@@ -168,7 +168,6 @@ async def update_games_message():
             data = await fetch_game_data()
 
             embed = create_games_overview_embed(data, timestamp_format="R")
-            if embed.fields == []:
             await message.edit(content=None, embed=embed)
             await asyncio.sleep(30)
         except Exception as e:
