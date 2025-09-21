@@ -165,7 +165,7 @@ async def update_games_message():
             data = await fetch_game_data()
 
             embed = create_games_overview_embed(data, timestamp_format="R")
-            await message.edit(content=None, embed=embed)
+            await message.edit(content="", embed=embed)
             await asyncio.sleep(30)
         except Exception as e:
             print(f"[GamesMessageTask] Unhandled error: {e}")
