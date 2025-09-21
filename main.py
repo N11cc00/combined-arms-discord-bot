@@ -96,7 +96,6 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
 
     if not relevant_games:
         embed.description = "No Combined Arms games found."
-        return embed
 
     # Group games by version
     version_groups = {}
