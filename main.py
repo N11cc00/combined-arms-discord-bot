@@ -19,7 +19,7 @@ channel_id: int = 0
 
 # path to main.py
 path_to_main = os.path.dirname(os.path.abspath(__file__))
-footer_icon = discord.File(f"{path_to_main}/ca_icon.png", filename="ca_icon.png")
+footer_icon = discord.File(f"{path_to_main}/icon.png", filename="icon.png")
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -149,7 +149,7 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
         value = "\n".join(lines)
         embed.add_field(name=f"[{version_str}]", value=value, inline=False)
 
-    embed.set_footer(text="Data from openra.net/games", icon_url="attachment://ca_icon.png")
+    embed.set_footer(text="Data from openra.net/games", icon_url="attachment://icon.png")
     return embed
 
 async def update_games_message():
