@@ -90,7 +90,8 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
         relevant_games = [game for game in relevant_games if version.parse(game.get("version", "0.0.0")) >= newest_version
                          or ("dev" in game.get("version", "").lower()) or ("pre" in game.get("version", "").lower())]
 
-    if not relevant_games:
+    if len(relevant_games) == 0:
+        print("No relevant games found.")
         embed.description = "No Combined Arms games found."
         return embed
 
