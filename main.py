@@ -146,7 +146,7 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
         embed.add_field(name=f"[{version_str}]", value=value, inline=False)
 
     if not embed.title and not embed.description and not embed.fields:
-        embed.description = "No games available."
+        embed.description = "No Combined Arms games found."
 
     return embed
 
