@@ -16,7 +16,10 @@ url = "https://master.openra.net/games?protocol=2&type=json"
 mode_name = "ca"
 message_id: int = 0
 channel_id: int = 0
-footer_icon = discord.File("./ca_icon.png", filename="ca_icon.png")
+
+# path to main.py
+path_to_main = os.path.dirname(os.path.abspath(__file__))
+footer_icon = discord.File(f"{path_to_main}/ca_icon.png", filename="ca_icon.png")
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
