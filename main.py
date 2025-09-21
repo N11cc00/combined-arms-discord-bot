@@ -65,6 +65,7 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     embed = discord.Embed(
         title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
         color=discord.Color.purple()
+        description="Current games overview"
     )
 
     # Filter for Combined Arms games
@@ -144,9 +145,6 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
 
         value = "\n".join(lines)
         embed.add_field(name=f"[{version_str}]", value=value, inline=False)
-
-    if not embed.title and not embed.description and not embed.fields:
-        embed.description = "No Combined Arms games found."
 
     return embed
 
