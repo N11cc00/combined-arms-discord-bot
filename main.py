@@ -65,7 +65,7 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     embed = discord.Embed(
         title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
         color=discord.Color.purple(),
-        timestamp=datetime.datetime.utcnow()
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
 
     # Filter for Combined Arms games
