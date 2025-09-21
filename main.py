@@ -64,7 +64,7 @@ async def presence_task():
 def create_games_overview_embed(games, timestamp_format="F", show_empty=False, show_outdated=False):
     embed = discord.Embed(
         title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
-        color=discord.Color.purple()
+        color=discord.Color.purple(),
         description="Current games overview"
     )
 
