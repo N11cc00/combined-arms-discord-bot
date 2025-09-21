@@ -63,9 +63,9 @@ async def presence_task():
 
 def create_games_overview_embed(games, timestamp_format="F", show_empty=False, show_outdated=False):
     embed = discord.Embed(
-        title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
+        title="Combined Arms Games",
         color=discord.Color.purple(),
-        description="Current games overview"
+        description="Current games overview, last refresh " + create_current_discord_timestamp("R")
     )
 
     # Filter for Combined Arms games
@@ -89,11 +89,6 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     if not show_outdated:
         relevant_games = [game for game in relevant_games if version.parse(game.get("version", "0.0.0")) >= newest_version
                          or ("dev" in game.get("version", "").lower()) or ("pre" in game.get("version", "").lower())]
-
-    if len(relevant_games) == 0:
-        print("No relevant games found.")
-        embed.description = "No Combined Arms games found."
-        return embed
 
     # Group games by version
     version_groups = {}
@@ -150,6 +145,10 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     print(f"Embed title: {embed.title}")
     print(f"Embed description: {embed.description}")
     print(f"Embed fields: {embed.fields}")
+
+    if embed.fields == []:
+        embed.add_field(name="No games found", value="There are no players online.", inline=False)
+
     return embed
 
 async def update_games_message():
@@ -169,6 +168,7 @@ async def update_games_message():
             data = await fetch_game_data()
 
             embed = create_games_overview_embed(data, timestamp_format="R")
+            if embed.fields == []:
             await message.edit(content=None, embed=embed)
             await asyncio.sleep(30)
         except Exception as e:
