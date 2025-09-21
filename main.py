@@ -65,7 +65,8 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     embed = discord.Embed(
         title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
         color=discord.Color.purple(),
-        timestamp=datetime.datetime.now(datetime.timezone.utc)
+        timestamp=datetime.datetime.now(datetime.timezone.utc),
+        
     )
 
     # Filter for Combined Arms games
@@ -146,6 +147,7 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
         value = "\n".join(lines)
         embed.add_field(name=f"[{version_str}]", value=value, inline=False)
 
+    embed.set_footer(text="Data from openra.net/games", icon_url="https://ca.oraladder.net/tech-tree/img/ca.png")
     return embed
 
 async def update_games_message():
