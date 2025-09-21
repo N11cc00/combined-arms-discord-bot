@@ -146,6 +146,9 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
         value = "\n".join(lines)
         embed.add_field(name=f"[{version_str}]", value=value, inline=False)
 
+    print(f"Embed title: {embed.title}")
+    print(f"Embed description: {embed.description}")
+    print(f"Embed fields: {embed.fields}")
     return embed
 
 async def update_games_message():
@@ -165,7 +168,7 @@ async def update_games_message():
             data = await fetch_game_data()
 
             embed = create_games_overview_embed(data, timestamp_format="R")
-            await message.edit(content="", embed=embed)
+            await message.edit(content=None, embed=embed)
             await asyncio.sleep(30)
         except Exception as e:
             print(f"[GamesMessageTask] Unhandled error: {e}")
