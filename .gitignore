@@ -1,2 +1,4 @@
 .venv/
 .env
+games_db.json
+*.png

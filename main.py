@@ -6,6 +6,8 @@ import asyncio
 import dotenv
 import os
 import datetime
+from tinydb import TinyDB, Query
+import matplotlib.pyplot as plt
 
 dotenv.load_dotenv()
 
@@ -16,6 +18,7 @@ url = "https://master.openra.net/games?protocol=2&type=json"
 mode_name = "ca"
 message_id: int = 0
 channel_id: int = 0
+task_iteration: int = 0
 
 # path to main.py
 # path_to_main = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +40,7 @@ async def fetch_game_data():
                 return []
             data = await resp.json()
             return data
-
+""" 
 async def presence_task():
     await bot.wait_until_ready()
 
@@ -64,7 +67,7 @@ async def presence_task():
         except Exception as e:
             print(f"[PresenceTask] Unhandled error: {e}")
             traceback.print_exc()
-            await asyncio.sleep(300)  # Wait 5 minutes before retrying
+            await asyncio.sleep(300)  # Wait 5 minutes before retrying """
 
 def create_games_overview_embed(games, timestamp_format="F", show_empty=False, show_outdated=False):
     embed = discord.Embed(
@@ -152,8 +155,30 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
 
     embed.set_footer(text="Data from openra.net/games", icon_url=icon_url)
     return embed
+    
+def save_data_to_db(data):
+    # only save Combined Arms games with at least one player to reduce db size
+    with TinyDB('games_db.json') as db:
+        ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
 
-async def update_games_message():
+        # if there are no games, still save an entry with empty games list
+        # to indicate that the bot was running at that time
+
+        # remove some keys to save data
+        for game in ca_games:
+            keys_to_remove = ["modwebsite", "modtitle", "modicon32"]
+            for key in keys_to_remove:
+                game.pop(key, None)
+
+            # remove all clients that are bots
+            clients = game.get("clients", [])
+            game["clients"] = [client for client in clients if not client.get("isbot", False)]
+
+        timestamp_data = {"timestamp": int(datetime.datetime.now(datetime.timezone.utc).timestamp()), "games": ca_games}
+        db.insert(timestamp_data)
+
+# Combined 
+async def update_bot_task():
     import traceback
     await bot.wait_until_ready()
     channel = bot.get_channel(int(os.getenv("GAMES_CHANNEL_ID")))
@@ -167,10 +192,35 @@ async def update_games_message():
         return
     while not bot.is_closed():
         try:
+            # fetch game data
             data = await fetch_game_data()
 
+            # save data to tinydb, key should be the timestamp
+            global task_iteration
+            if task_iteration % 2 == 0: # Save to DB every 2nd iteration (every minute)
+                save_data_to_db(data)
+
+            # update the embed
             embed = create_games_overview_embed(data, timestamp_format="R")
             await message.edit(content=None, embed=embed)
+
+            # update the bot's presence
+            ca_games = [game for game in data if game.get("mod", "").lower() == mode_name]
+
+            total_players = sum(game.get("players", 0) for game in ca_games)
+            active_games = [game for game in ca_games if game.get("players", 0) > 0]
+
+            player_description = "players" if total_players != 1 else "player"
+            games_description = "games" if len(active_games) != 1 else "game"
+
+            activity = discord.Activity(
+                type=discord.ActivityType.watching,
+                name=f"{total_players} {player_description} in {len(active_games)} CA {games_description}"
+            )
+            await bot.change_presence(activity=activity)
+
+            task_iteration += 1
+
             await asyncio.sleep(30)
         except Exception as e:
             print(f"[GamesMessageTask] Unhandled error: {e}")
@@ -182,14 +232,14 @@ async def on_ready():
     print(f"Logged in as {bot.user}")
 
     # Clear all guild-specific commands used for testing to avoid duplicates/dead commands
-    guilds = [guild.id for guild in bot.guilds]
+    """guilds = [guild.id for guild in bot.guilds]
     for guildId in guilds:
         guild = discord.Object(id=guildId)
         print(f'Deleting commands from {guildId}.....')
         bot.tree.clear_commands(guild=guild,type=None)
         await bot.tree.sync(guild=guild)
         print(f'Deleted commands from {guildId}!')
-        continue
+        continue """
 
     try:
         synced = await bot.tree.sync(guild=None)
@@ -197,9 +247,6 @@ async def on_ready():
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
-
-
-    bot.loop.create_task(presence_task())  # Start the presence loop
 
     global channel_id
     global message_id
@@ -223,7 +270,7 @@ async def on_ready():
             message = await channel.fetch_message(message_id)
 
 
-        bot.loop.create_task(update_games_message())  # Start the message update loop
+        bot.loop.create_task(update_bot_task())  # Start the message update loop
 
 
 """
@@ -320,6 +367,88 @@ async def games(interaction: discord.Interaction, show_outdated: bool = False, s
     embed = create_games_overview_embed(data, timestamp_format="F", show_empty=show_empty, show_outdated=show_outdated)
 
     await interaction.followup.send(embed=embed)
+
+def get_average_player_count_on_day(day: datetime.date) -> float:
+    with TinyDB('games_db.json') as db:
+        Game = Query()
+        start_timestamp = int(datetime.datetime.combine(day, datetime.time.min, tzinfo=datetime.timezone.utc).timestamp())
+        end_timestamp = int(datetime.datetime.combine(day, datetime.time.max, tzinfo=datetime.timezone.utc).timestamp())
+        
+        entries = db.search((Game.timestamp >= start_timestamp) & (Game.timestamp <= end_timestamp))
+        
+    # structure of an entry is {"timestamp": 1234567890, "games": [...]}
+    # data is already filtered
+    total_player_counts = []
+    for entry in entries:
+        games = entry.get("games", [])
+        total_players = sum(game.get("players", 0) for game in games)
+        total_player_counts.append(total_players)
+
+    if not total_player_counts:
+        return 0
+
+    return sum(total_player_counts) / len(total_player_counts)
+
+def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
+    with TinyDB('games_db.json') as db:
+        Game = Query()
+        start_timestamp = int(hour.replace(minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc).timestamp())
+        end_timestamp = int(hour.replace(minute=59, second=59, microsecond=999999, tzinfo=datetime.timezone.utc).timestamp())
+
+        entries = db.search((Game.timestamp >= start_timestamp) & (Game.timestamp <= end_timestamp))
+
+    # structure of an entry is {"timestamp": 1234567890, "games": [...]}
+    # data is already filtered
+    total_player_counts = []
+    for entry in entries:
+        games = entry.get("games", [])
+        total_players = sum(game.get("players", 0) for game in games)
+        total_player_counts.append(total_players)
+
+    if not total_player_counts:
+        return 0
+    return sum(total_player_counts) / len(total_player_counts)
+
+
+def create_stats_embed(filename: str, image_path: str, title: str):
+    embed = discord.Embed(
+        title=title,
+        color=discord.Color.blue(),
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    file = discord.File(image_path, filename=filename)
+    embed.set_image(url=f"attachment://{filename}")
+    embed.set_footer(text="Data from openra.net/games", icon_url=icon_url)
+    return embed
+        
+
+@bot.tree.command(name="stats", description="Shows online player statistics for Combined Arms.")
+async def stats(interaction: discord.Interaction):
+    await interaction.response.defer()
+    # for testing this should send an embed with player count numbers from the database
+    # for this we need to read from the tinydb and only display the player counts
+
+    # get data for the last 24 hours
+    now = datetime.datetime.now(datetime.timezone.utc)
+    last_24_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(24)]
+    last_24_hours.reverse()  # so that the oldest hour is first
+    player_counts = [get_average_player_count_on_hour(hour) for hour in last_24_hours]
+    hours_labels = [hour.strftime("%H:%M") for hour in last_24_hours]
+    # create a plot with matplotlib
+    plt.figure(figsize=(10, 5))
+    plt.plot(hours_labels, player_counts, marker='o')
+    plt.title("Average Player Count in the Last 24 Hours")
+    plt.xlabel("Hour (UTC)")
+    plt.ylabel("Average Player Count")
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("last_24_hours.png")
+    plt.close()
+
+    embed = create_stats_embed("last_24_hours.png", "last_24_hours.png", "Average Player Count in the Last 24 Hours")
+    await interaction.followup.send(embed=embed, file=discord.File("last_24_hours.png"))
+
 
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
