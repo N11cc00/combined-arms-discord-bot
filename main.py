@@ -436,6 +436,8 @@ def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     plt.grid(True)
 
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=20))  # Show at most 20 x-ticks
+
     # the grid is dotted lines
     plt.grid(which='both', linestyle=':', linewidth=0.5)
 
@@ -466,6 +468,7 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
             last_168_hours.reverse()  # so that the oldest hour is first
             player_counts = [get_average_player_count_on_hour(hour) for hour in last_168_hours]
             hours_labels = [hour.strftime("%Y-%m-%d %H:%M") for hour in last_168_hours]
+
             # create a plot with matplotlib
             create_plot(hours_labels, player_counts, "Average Player Count in the Last Week", "Time (UTC)", "Average Player Count", "last_week.png")
         case "month":
@@ -475,10 +478,6 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
             player_counts = [get_average_player_count_on_day(day) for day in last_30_days]
             days_labels = [day.strftime("%Y-%m-%d") for day in last_30_days]
 
-            # only show every 12th label to avoid clutter
-            for i in range(len(days_labels)):
-                if i % 12 != 0:
-                    days_labels[i] = ""
             # create a plot with matplotlib
             create_plot(days_labels, player_counts, "Average Player Count in the Last Month", "Time (UTC)", "Average Player Count", "last_month.png")
         case "year":
@@ -488,10 +487,7 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
             last_365_days.reverse()  # so that the oldest day is first
             player_counts = [get_average_player_count_on_day(day) for day in last_365_days]
             days_labels = [day.strftime("%Y-%m-%d") for day in last_365_days]
-            # skip certain labels to avoid clutter
-            for i in range(len(days_labels)):
-                if i % 15 != 0:
-                    days_labels[i] = ""
+
             # create a plot with matplotlib
             create_plot(days_labels, player_counts, "Average Player Count in the Last Year", "Time (UTC)", "Average Player Count", "last_year.png")
         case _:
