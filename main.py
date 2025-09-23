@@ -474,6 +474,11 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
             last_30_days.reverse()  # so that the oldest day is first
             player_counts = [get_average_player_count_on_day(day) for day in last_30_days]
             days_labels = [day.strftime("%Y-%m-%d") for day in last_30_days]
+
+            # only show every 3rd label to avoid clutter
+            for i in range(len(days_labels)):
+                if i % 4 != 0:
+                    days_labels[i] = ""
             # create a plot with matplotlib
             create_plot(days_labels, player_counts, "Average Player Count in the Last Month", "Time (UTC)", "Average Player Count", "last_month.png")
         case "year":
