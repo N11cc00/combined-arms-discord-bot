@@ -8,6 +8,7 @@ import os
 import datetime
 from tinydb import TinyDB, Query
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 dotenv.load_dotenv()
 
@@ -429,7 +430,10 @@ def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.xticks(rotation=45)
-    plt.xticks(ticks=range(len(x_labels)), labels=x_labels)
+
+    # y axis should only show whole numbers
+    ax = plt.gca()
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     plt.grid(True)
 
     # the grid is dotted lines
