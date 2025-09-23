@@ -425,7 +425,7 @@ def create_stats_embed(filename: str, image_path: str, title: str):
 def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
     plt.figure(figsize=(10, 5))
 
-    plt.plot(x_labels, y_values, marker='o')
+    plt.plot(x_labels, y_values, marker=None)
     plt.title(title)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
