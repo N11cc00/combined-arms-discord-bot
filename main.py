@@ -420,34 +420,70 @@ def create_stats_embed(filename: str, image_path: str, title: str):
     embed.set_image(url=f"attachment://{filename}")
     embed.set_footer(text="Data from openra.net/games", icon_url=icon_url)
     return embed
-        
+
+def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
+    plt.figure(figsize=(10, 5))
+    plt.plot(x_labels, y_values, marker='o')
+    plt.title(title)
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
 @bot.tree.command(name="stats", description="Shows online player statistics for Combined Arms.")
-async def stats(interaction: discord.Interaction):
+async def stats(interaction: discord.Interaction, period: str = "day"):
     await interaction.response.defer()
     # for testing this should send an embed with player count numbers from the database
     # for this we need to read from the tinydb and only display the player counts
 
     # get data for the last 24 hours
-    now = datetime.datetime.now(datetime.timezone.utc)
-    last_24_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(24)]
-    last_24_hours.reverse()  # so that the oldest hour is first
-    player_counts = [get_average_player_count_on_hour(hour) for hour in last_24_hours]
-    hours_labels = [hour.strftime("%H:%M") for hour in last_24_hours]
-    # create a plot with matplotlib
-    plt.figure(figsize=(10, 5))
-    plt.plot(hours_labels, player_counts, marker='o')
-    plt.title("Average Player Count in the Last 24 Hours")
-    plt.xlabel("Hour (UTC)")
-    plt.ylabel("Average Player Count")
-    plt.xticks(rotation=45)
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("last_24_hours.png")
-    plt.close()
+    match period:
+        case "day":
+            now = datetime.datetime.now(datetime.timezone.utc)
+            last_24_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(24)]
+            last_24_hours.reverse()  # so that the oldest hour is first
+            player_counts = [get_average_player_count_on_hour(hour) for hour in last_24_hours]
+            hours_labels = [hour.strftime("%H:%M") for hour in last_24_hours]
+            # create a plot with matplotlib
+            create_plot(hours_labels, player_counts, "Average Player Count in the Last 24 Hours", "Time (UTC)", "Average Player Count", "last_day.png")
+        case "week":
+            now = datetime.datetime.now(datetime.timezone.utc)
+            # split up week into hours
+            last_168_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(168)]
+            last_168_hours.reverse()  # so that the oldest hour is first
+            player_counts = [get_average_player_count_on_hour(hour) for hour in last_168_hours]
+            hours_labels = [hour.strftime("%Y-%m-%d %H:%M") for hour in last_168_hours]
+            # create a plot with matplotlib
+            create_plot(hours_labels, player_counts, "Average Player Count in the Last Week", "Time (UTC)", "Average Player Count", "last_week.png")
+        case "month":
+            now = datetime.datetime.now(datetime.timezone.utc)
+            last_30_days = [(now - datetime.timedelta(days=i)).date() for i in range(30)]
+            last_30_days.reverse()  # so that the oldest day is first
+            player_counts = [get_average_player_count_on_day(day) for day in last_30_days]
+            days_labels = [day.strftime("%Y-%m-%d") for day in last_30_days]
+            # create a plot with matplotlib
+            create_plot(days_labels, player_counts, "Average Player Count in the Last Month", "Time (UTC)", "Average Player Count", "last_month.png")
+        case "year":
+            # do this for every day
+            now = datetime.datetime.now(datetime.timezone.utc)
+            last_365_days = [(now - datetime.timedelta(days=i)).date() for i in range(365)]
+            last_365_days.reverse()  # so that the oldest day is first
+            player_counts = [get_average_player_count_on_day(day) for day in last_365_days]
+            days_labels = [day.strftime("%Y-%m-%d") for day in last_365_days]
+            # create a plot with matplotlib
+            create_plot(days_labels, player_counts, "Average Player Count in the Last Year", "Time (UTC)", "Average Player Count", "last_year.png")
+        case _:
+            await interaction.followup.send("Invalid period. Available: day, week, month, year.")
+            return
 
-    embed = create_stats_embed("last_24_hours.png", "last_24_hours.png", "Average Player Count in the Last 24 Hours")
-    await interaction.followup.send(embed=embed, file=discord.File("last_24_hours.png"))
+    embed = create_stats_embed(f"last_{period}.png", f"last_{period}.png", f"Combined Arms Player Statistics - Last {period.capitalize()}")
+    await interaction.followup.send(embed=embed, file=discord.File(f"last_{period}.png"))
+
+    # embed = create_stats_embed("stats.png", "last_24_hours.png", f"Combined Arms Player Statistics - Last {period.capitalize()}")
+    # await interaction.followup.send(embed=embed, file=discord.File("last_24_hours.png"))
 
 
 
