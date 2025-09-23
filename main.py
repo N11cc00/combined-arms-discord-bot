@@ -423,12 +423,18 @@ def create_stats_embed(filename: str, image_path: str, title: str):
 
 def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
     plt.figure(figsize=(10, 5))
+
     plt.plot(x_labels, y_values, marker='o')
     plt.title(title)
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.xticks(rotation=45)
+    plt.xticks(ticks=range(len(x_labels)), labels=x_labels)
     plt.grid(True)
+
+    # the grid is dotted lines
+    plt.grid(which='both', linestyle=':', linewidth=0.5)
+
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
@@ -473,6 +479,10 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
             last_365_days.reverse()  # so that the oldest day is first
             player_counts = [get_average_player_count_on_day(day) for day in last_365_days]
             days_labels = [day.strftime("%Y-%m-%d") for day in last_365_days]
+            # skip certain labels to avoid clutter
+            for i in range(len(days_labels)):
+                if i % 15 != 0:
+                    days_labels[i] = ""
             # create a plot with matplotlib
             create_plot(days_labels, player_counts, "Average Player Count in the Last Year", "Time (UTC)", "Average Player Count", "last_year.png")
         case _:
