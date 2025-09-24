@@ -451,9 +451,10 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
     await interaction.response.defer()
     # for testing this should send an embed with player count numbers from the database
     # for this we need to read from the tinydb and only display the player counts
+    period = period.lower()
 
     # get data for the last 24 hours
-    match period.lower():
+    match period:
         case "day":
             now = datetime.datetime.now(datetime.timezone.utc)
             last_24_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(24)]
