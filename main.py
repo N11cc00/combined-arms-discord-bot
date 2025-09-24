@@ -10,8 +10,15 @@ from tinydb import TinyDB, Query
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib.dates as mdates
+from discord import app_commands
+import pytz
+import logging
+
 
 dotenv.load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 intents = discord.Intents.default()
 intents.message_content = False
@@ -309,6 +316,8 @@ async def player_count(interaction: discord.Interaction):
 async def players(interaction: discord.Interaction):
     # show all players in games
     await interaction.response.defer()  # Optional: shows "thinking..." in Discord
+    logging.info(f"Players command invoked by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+
     try:
         data = await fetch_game_data()
     except Exception as e:
@@ -350,7 +359,7 @@ async def players(interaction: discord.Interaction):
     # remove last comma and space
     players_string = players_string[:-2]
 
-    await interaction.followup.send(f"Current players **{total_players}**:\n{players_string}")
+    await interaction.followup.send(f"Current players: **{total_players}**\n{players_string}")
 
 
 def get_newest_version(games):
@@ -358,15 +367,18 @@ def get_newest_version(games):
     return max(versions) if versions else version.parse("0.0.0")
 
 @bot.tree.command(name="games", description="Lists Combined Arms games.")
-async def games(interaction: discord.Interaction, show_outdated: bool = False, show_empty: bool = False):
+@app_commands.describe(outdated="Show games with outdated versions", empty="Show games with zero players")
+async def games(interaction: discord.Interaction, outdated: bool = False, empty: bool = False):
     await interaction.response.defer()
+    logging.info(f"Games command invoked with outdated: {outdated}, empty: {empty} by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+
     try:
         data = await fetch_game_data()
     except Exception as e:
         await interaction.followup.send(f"Error fetching data: {e}")
         return
 
-    embed = create_games_overview_embed(data, timestamp_format="F", show_empty=show_empty, show_outdated=show_outdated)
+    embed = create_games_overview_embed(data, timestamp_format="F", show_empty=empty, show_outdated=outdated)
 
     await interaction.followup.send(embed=embed)
 
@@ -423,35 +435,95 @@ def create_stats_embed(filename: str, image_path: str, title: str):
     embed.set_footer(text="Data from openra.net/games", icon_url=icon_url)
     return embed
 
-def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
-    plt.figure(figsize=(10, 5))
+def create_plot(x_times, y_values, title, x_label, y_label, output_path, period="day", timezone="UTC"):
+    # Convert x_times to the specified timezone
+    #before converting
+    tz = pytz.timezone(timezone)
+    x_times = [dt.astimezone(tz) for dt in x_times]
 
-    plt.plot(x_labels, y_values, marker=None)
-    plt.title(title)
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.xticks(rotation=45)
-
-    # y axis should only show whole numbers
+    plt.style.use('seaborn-v0_8')
+    plt.figure(figsize=(12, 6), facecolor='white')
     ax = plt.gca()
+    
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    plt.grid(True)
 
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=25))  # Show at most 25 x-ticks
+    if y_values:  # Ensure y_values is not empty
+        ax.set_ylim(bottom=0, top=max(y_values) * 1.1)  # Start at 0, extend 10% above max for padding
 
-    # the grid is dotted lines
-    plt.grid(which='both', linestyle=':', linewidth=0.5)
+    if x_times:  # Ensure x_times is not empty
+        ax.set_xlim(left=min(x_times), right=max(x_times))
+    
+    if period == "day":
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=pytz.timezone(timezone)))
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+    elif period == "week":
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M", tz=pytz.timezone(timezone)))
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=12))
+    elif period == "month":
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d", tz=pytz.timezone(timezone)))
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
+    elif period == "year":
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m", tz=pytz.timezone(timezone)))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
 
+    plt.plot(x_times, y_values, color='#1f77b4', linewidth=2.5)
+    plt.title(f"{title}", fontsize=16, fontweight='bold', pad=15, color='#333333')  # Add timezone to title
+    plt.xlabel(f"{x_label} ({timezone})", fontsize=12, fontweight='medium', color='#333333')
+    plt.ylabel(y_label, fontsize=12, fontweight='medium', color='#333333')
+    plt.xticks(rotation=45, ha='right', fontsize=10, color='#333333')
+    plt.yticks(fontsize=10, color='#333333')
+    plt.grid(True, which='both', linestyle='--', linewidth=0.7, alpha=0.7, color='#cccccc')
+    ax.set_facecolor('#f5f5f5')
+    for spine in ax.spines.values():
+        spine.set_edgecolor('#cccccc')
+        spine.set_linewidth(1)
     plt.tight_layout()
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
 
+
+async def period_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    periods = ["day", "week", "month", "year"]
+    return [
+        app_commands.Choice(name=period, value=period)
+        for period in periods
+        if current.lower() in period.lower()
+    ][:25]
+
+async def timezone_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    common_timezones = [
+        "UTC", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "Europe/London",
+        "Europe/Paris", "Asia/Tokyo", "Australia/Sydney", "Asia/Dubai", "America/Chicago", "Asia/Singapore"
+    ]
+    return [
+        app_commands.Choice(name=tz, value=tz)
+        for tz in common_timezones
+        if current.lower() in tz.lower()
+    ][:25]
+
 @bot.tree.command(name="stats", description="Shows online player statistics for Combined Arms.")
-async def stats(interaction: discord.Interaction, period: str = "day"):
+@app_commands.describe(
+    period="Time period for stats: day, week, month, year. Default: day", 
+    timezone="IANA timezone for stats. Default: UTC"
+)                  
+@app_commands.autocomplete(period=period_autocomplete, timezone=timezone_autocomplete)
+async def stats(interaction: discord.Interaction, period: str = "day", timezone: str = "UTC"):
     await interaction.response.defer()
+    logging.info(f"Stats command invoked with period: {period}, timezone: {timezone} by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+
+
     # for testing this should send an embed with player count numbers from the database
     # for this we need to read from the tinydb and only display the player counts
     period = period.lower()
+    
+    # check that timezone is a valid timezone
+    try:
+        pytz.timezone(timezone)
+    except pytz.exceptions.UnknownTimeZoneError:
+        await interaction.followup.send(
+            f"Invalid timezone: `{timezone}`. Please use an IANA timezone (e.g., `America/New_York`, `Europe/London`, `UTC`)."
+        )
+        return
 
     # get data for the last 24 hours
     match period:
@@ -459,42 +531,41 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
             now = datetime.datetime.now(datetime.timezone.utc)
             last_24_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(24)]
             last_24_hours.reverse()  # so that the oldest hour is first
+            # convert to timezone
             player_counts = [get_average_player_count_on_hour(hour) for hour in last_24_hours]
-            hours_labels = [hour.strftime("%H:%M") for hour in last_24_hours]
 
-            ax = plt.gca()
-            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))  # Ticks every 1 hour
             # create a plot with matplotlib
-            create_plot(hours_labels, player_counts, "Average Player Count in the Last 24 Hours", "Time (UTC)", "Average Player Count", "last_day.png")
+            create_plot(last_24_hours, player_counts, "Average Player Count in the Last 24 Hours", f"Time", "Average Player Count", 
+                        "last_day.png", period="day", timezone=timezone)
         case "week":
             now = datetime.datetime.now(datetime.timezone.utc)
             # split up week into hours
             last_168_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(168)]
             last_168_hours.reverse()  # so that the oldest hour is first
             player_counts = [get_average_player_count_on_hour(hour) for hour in last_168_hours]
-            hours_labels = [hour.strftime("%Y-%m-%d %H:%M") for hour in last_168_hours]
 
             # create a plot with matplotlib
-            create_plot(hours_labels, player_counts, "Average Player Count in the Last Week", "Time (UTC)", "Average Player Count", "last_week.png")
+            create_plot(last_168_hours, player_counts, "Average Player Count in the Last Week", f"Time", "Average Player Count", 
+                        "last_week.png", period="week", timezone=timezone)
         case "month":
             now = datetime.datetime.now(datetime.timezone.utc)
             last_30_days = [(now - datetime.timedelta(days=i)).date() for i in range(30)]
             last_30_days.reverse()  # so that the oldest day is first
             player_counts = [get_average_player_count_on_day(day) for day in last_30_days]
-            days_labels = [day.strftime("%Y-%m-%d") for day in last_30_days]
 
             # create a plot with matplotlib
-            create_plot(days_labels, player_counts, "Average Player Count in the Last Month", "Time (UTC)", "Average Player Count", "last_month.png")
+            create_plot(last_30_days, player_counts, "Average Player Count in the Last Month", f"Time", "Average Player Count", 
+                        "last_month.png", period="month", timezone=timezone)
         case "year":
             # do this for every day
             now = datetime.datetime.now(datetime.timezone.utc)
             last_365_days = [(now - datetime.timedelta(days=i)).date() for i in range(365)]
             last_365_days.reverse()  # so that the oldest day is first
             player_counts = [get_average_player_count_on_day(day) for day in last_365_days]
-            days_labels = [day.strftime("%Y-%m-%d") for day in last_365_days]
 
             # create a plot with matplotlib
-            create_plot(days_labels, player_counts, "Average Player Count in the Last Year", "Time (UTC)", "Average Player Count", "last_year.png")
+            create_plot(last_365_days, player_counts, "Average Player Count in the Last Year", f"Time", "Average Player Count", 
+                        "last_year.png", period="year", timezone=timezone)
         case _:
             await interaction.followup.send("Invalid period. Available: day, week, month, year.")
             return
@@ -504,7 +575,5 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
 
     # embed = create_stats_embed("stats.png", "last_24_hours.png", f"Combined Arms Player Statistics - Last {period.capitalize()}")
     # await interaction.followup.send(embed=embed, file=discord.File("last_24_hours.png"))
-
-
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
