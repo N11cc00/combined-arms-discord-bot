@@ -9,6 +9,7 @@ import datetime
 from tinydb import TinyDB, Query
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import matplotlib.dates as mdates
 
 dotenv.load_dotenv()
 
@@ -436,7 +437,7 @@ def create_plot(x_labels, y_values, title, x_label, y_label, output_path):
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     plt.grid(True)
 
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=20))  # Show at most 20 x-ticks
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=25))  # Show at most 25 x-ticks
 
     # the grid is dotted lines
     plt.grid(which='both', linestyle=':', linewidth=0.5)
@@ -452,13 +453,16 @@ async def stats(interaction: discord.Interaction, period: str = "day"):
     # for this we need to read from the tinydb and only display the player counts
 
     # get data for the last 24 hours
-    match period:
+    match period.lower():
         case "day":
             now = datetime.datetime.now(datetime.timezone.utc)
             last_24_hours = [(now - datetime.timedelta(hours=i)).replace(minute=0, second=0, microsecond=0) for i in range(24)]
             last_24_hours.reverse()  # so that the oldest hour is first
             player_counts = [get_average_player_count_on_hour(hour) for hour in last_24_hours]
             hours_labels = [hour.strftime("%H:%M") for hour in last_24_hours]
+
+            ax = plt.gca()
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))  # Ticks every 1 hour
             # create a plot with matplotlib
             create_plot(hours_labels, player_counts, "Average Player Count in the Last 24 Hours", "Time (UTC)", "Average Player Count", "last_day.png")
         case "week":
