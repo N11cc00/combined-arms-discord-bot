@@ -191,6 +191,7 @@ async def update_bot_task():
     import traceback
     await bot.wait_until_ready()
     channel = bot.get_channel(int(os.getenv("GAMES_CHANNEL_ID")))
+
     if not channel:
         print(f"Channel with ID {os.getenv('GAMES_CHANNEL_ID')} not found.")
         return
@@ -422,6 +423,38 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
     if not total_player_counts:
         return 0
     return sum(total_player_counts) / len(total_player_counts)
+
+# sets a reminder for a nickname
+async def reminder(interaction: discord.Interaction, name: str, clear: bool = False):
+    # TODO: implement the actual reminder functionality
+    await interaction.response.defer()
+    logging.info(f"Reminder command invoked with name: {name}, clear: {clear} by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+
+    name = name.lower().strip()
+    with TinyDB('games_db.json') as db:
+        reminders_table = db.table('reminders')
+        if clear:
+            reminders_table.remove((Query().discord_id == interaction.user.id))
+            await interaction.followup.send(f"All reminders cleared!")
+            return
+
+        User = Query()
+        doc = reminders_table.get(User.discord_id == interaction.user.id)
+        if doc:
+            names = doc.get("names", [])
+            if name not in names:
+                names.append(name)
+            else:
+                await interaction.followup.send(f"Reminder for {name} already set!")
+                return
+            # Update the document
+            reminders_table.update({"names": names}, User.discord_id == interaction.user.id)
+        else:
+            # Insert new document if not found
+            reminders_table.insert({"discord_id": interaction.user.id, "names": [name]})
+
+        # the value should be python list
+        await interaction.followup.send(f"Reminder set for {name}!")
 
 
 def create_stats_embed(filename: str, image_path: str, title: str):
