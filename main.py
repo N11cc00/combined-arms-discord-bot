@@ -36,6 +36,8 @@ icon_url = "https://cdn.discordapp.com/attachments/947159381101916183/1419453031
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+reminder_group = app_commands.Group(name="reminder", description="Commands to interact with reminders for players.")
+
 def create_current_discord_timestamp(f: str):    # use current time zone
     now = datetime.datetime.now(datetime.timezone.utc)
     timestamp = int(now.timestamp())
@@ -49,34 +51,6 @@ async def fetch_game_data():
                 return []
             data = await resp.json()
             return data
-""" 
-async def presence_task():
-    await bot.wait_until_ready()
-
-    import traceback
-    while not bot.is_closed():
-        try:
-            data = await fetch_game_data()
-            # Filter for Combined Arms games
-            ca_games = [game for game in data if game.get("mod", "").lower() == mode_name]
-
-            total_players = sum(game.get("players", 0) for game in ca_games)
-            active_games = [game for game in ca_games if game.get("players", 0) > 0]
-
-            player_description = "players" if total_players != 1 else "player"
-            games_description = "games" if len(active_games) != 1 else "game"
-
-            activity = discord.Activity(
-                type=discord.ActivityType.watching,
-                name=f"{total_players} {player_description} in {len(active_games)} CA {games_description}"
-            )
-            await bot.change_presence(activity=activity)
-
-            await asyncio.sleep(30)  # Update every 30 seconds
-        except Exception as e:
-            print(f"[PresenceTask] Unhandled error: {e}")
-            traceback.print_exc()
-            await asyncio.sleep(300)  # Wait 5 minutes before retrying """
 
 def create_games_overview_embed(games, timestamp_format="F", show_empty=False, show_outdated=False):
     embed = discord.Embed(
@@ -184,9 +158,63 @@ def save_data_to_db(data):
             game["clients"] = [client for client in clients if not client.get("isbot", False)]
 
         timestamp_data = {"timestamp": int(datetime.datetime.now(datetime.timezone.utc).timestamp()), "games": ca_games}
-        db.insert(timestamp_data)
+        db.insert(timestamp_data) 
 
-# Combined 
+async def check_for_reminders(data):
+    with TinyDB('games_db.json') as db:
+        reminders_table = db.table('reminders')
+        all_reminders = reminders_table.all()
+        if not all_reminders:
+            return  # No reminders set
+
+        ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
+        active_player_names = set()
+        for game in ca_games:
+            clients = game.get("clients", [])
+            for client in clients:
+                if not client.get("isbot", False):
+                    active_player_names.add(client.get("name", "").lower())
+
+        # do a query into the table where any of the names in the reminders is in the active_player_names
+        for reminder in all_reminders:
+            discord_id: int = reminder.get("discord_id", 0)
+            names: list[str] = reminder.get("names", [])
+            matched_names = [name for name in names if name.lower() in active_player_names]
+            if matched_names:
+                user = bot.get_user(discord_id)
+                if user is None:
+                    user = await bot.fetch_user(discord_id)
+                if user:
+                    try:
+                        logger.info(f"Sending reminder to user {discord_id} for names: {matched_names}")
+                        await user.send(f"The following players you are tracking are currently online: {', '.join(matched_names)}")
+
+                        # remove the matched names from the reminder list
+                        remaining_names = [name for name in names if name.lower() not in active_player_names]
+                        if remaining_names:
+                            reminders_table.update({"names": remaining_names}, Query().discord_id == discord_id)
+                        else:
+                            reminders_table.remove(Query().discord_id == discord_id)
+                    except Exception as e:
+                        logging.error(f"Failed to send reminder to user {discord_id}: {e}")
+
+async def update_presence(data):
+    # update the bot's presence
+    ca_games = [game for game in data if game.get("mod", "").lower() == mode_name]
+
+    total_players = sum(game.get("players", 0) for game in ca_games)
+    active_games = [game for game in ca_games if game.get("players", 0) > 0]
+
+    player_description = "players" if total_players != 1 else "player"
+    games_description = "games" if len(active_games) != 1 else "game"
+
+    activity = discord.Activity(
+        type=discord.ActivityType.watching,
+        name=f"{total_players} {player_description} in {len(active_games)} CA {games_description}"
+    )
+    await bot.change_presence(activity=activity)
+    return
+ 
 async def update_bot_task():
     import traceback
     await bot.wait_until_ready()
@@ -210,24 +238,14 @@ async def update_bot_task():
             if task_iteration % 2 == 0: # Save to DB every 2nd iteration (every minute)
                 save_data_to_db(data)
 
+            # check for reminders and send them
+            await check_for_reminders(data)
+
             # update the embed
             embed = create_games_overview_embed(data, timestamp_format="R")
             await message.edit(content=None, embed=embed)
 
-            # update the bot's presence
-            ca_games = [game for game in data if game.get("mod", "").lower() == mode_name]
-
-            total_players = sum(game.get("players", 0) for game in ca_games)
-            active_games = [game for game in ca_games if game.get("players", 0) > 0]
-
-            player_description = "players" if total_players != 1 else "player"
-            games_description = "games" if len(active_games) != 1 else "game"
-
-            activity = discord.Activity(
-                type=discord.ActivityType.watching,
-                name=f"{total_players} {player_description} in {len(active_games)} CA {games_description}"
-            )
-            await bot.change_presence(activity=activity)
+            await update_presence(data)
 
             task_iteration += 1
 
@@ -264,7 +282,6 @@ async def on_ready():
     channel_id = int(os.getenv("GAMES_CHANNEL_ID"))
     message_id = int(os.getenv("GAMES_MESSAGE_ID"))
 
-
     if os.getenv("GAMES_CHANNEL_ID"):
         channel = bot.get_channel(int(os.getenv("GAMES_CHANNEL_ID")))
         if not channel:
@@ -282,42 +299,11 @@ async def on_ready():
 
         bot.loop.create_task(update_bot_task())  # Start the message update loop
 
-
-"""
-@bot.tree.command(name="player_count", description="Shows the current number of players in Combined Arms games.")
-async def player_count(interaction: discord.Interaction):
-    await interaction.response.defer()  # Optional: shows "thinking..." in Discord
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    await interaction.followup.send("Failed to fetch data from openra.net.")
-                    return
-                data = await resp.json()
-    except Exception as e:
-        await interaction.followup.send(f"Error fetching data: {e}")
-        return
-
-
-    # Filter for Combined Arms games
-    ca_games = [game for game in data if game.get("mod", "").lower() == "ca"]
-
-    total_players = sum(game.get("players", 0) for game in ca_games)
-
-    # Get games with at least one player
-    active_games = [game for game in ca_games if game.get("players", 0) > 0]
-
-    await interaction.followup.send(
-        f"Current Combined Arms players: **{total_players}** in **{len(active_games)}** games."
-    )
-"""
-
-
 @bot.tree.command(name="players", description="Lists players in active Combined Arms games.")
 async def players(interaction: discord.Interaction):
     # show all players in games
     await interaction.response.defer()  # Optional: shows "thinking..." in Discord
-    logging.info(f"Players command invoked by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+    logging.info(f"Players command invoked by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     try:
         data = await fetch_game_data()
@@ -362,7 +348,6 @@ async def players(interaction: discord.Interaction):
 
     await interaction.followup.send(f"Current players: **{total_players}**\n{players_string}")
 
-
 def get_newest_version(games):
     versions = [version.parse(game.get("version", "0.0.0")) for game in games if "version" in game]
     return max(versions) if versions else version.parse("0.0.0")
@@ -371,7 +356,7 @@ def get_newest_version(games):
 @app_commands.describe(outdated="Show games with outdated versions", empty="Show games with zero players")
 async def games(interaction: discord.Interaction, outdated: bool = False, empty: bool = False):
     await interaction.response.defer()
-    logging.info(f"Games command invoked with outdated: {outdated}, empty: {empty} by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+    logging.info(f"Games command invoked with outdated: {outdated}, empty: {empty} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     try:
         data = await fetch_game_data()
@@ -424,19 +409,16 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
         return 0
     return sum(total_player_counts) / len(total_player_counts)
 
-# sets a reminder for a nickname
-async def reminder(interaction: discord.Interaction, name: str, clear: bool = False):
-    # TODO: implement the actual reminder functionality
+# sets a reminder for a nickname add command
+@reminder_group.command(name="add", description="Set a reminder for when a player is in a game.")
+@app_commands.describe(name="Name of the player to set a reminder for")
+async def reminder(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
-    logging.info(f"Reminder command invoked with name: {name}, clear: {clear} by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
+    logging.info(f"Reminder add command invoked with name: {name} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     name = name.lower().strip()
     with TinyDB('games_db.json') as db:
         reminders_table = db.table('reminders')
-        if clear:
-            reminders_table.remove((Query().discord_id == interaction.user.id))
-            await interaction.followup.send(f"All reminders cleared!")
-            return
 
         User = Query()
         doc = reminders_table.get(User.discord_id == interaction.user.id)
@@ -453,9 +435,18 @@ async def reminder(interaction: discord.Interaction, name: str, clear: bool = Fa
             # Insert new document if not found
             reminders_table.insert({"discord_id": interaction.user.id, "names": [name]})
 
-        # the value should be python list
-        await interaction.followup.send(f"Reminder set for {name}!")
+        # the value should be a python list
+        await interaction.followup.send(f"I'll remind you when {name} is in a game!", ephemeral=True)
 
+@reminder_group.command(name="clear", description="Clear all your reminders.")
+async def reminder_clear(interaction: discord.Interaction):
+    await interaction.response.defer()
+    logging.info(f"Reminder clear command invoked by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
+
+    with TinyDB('games_db.json') as db:
+        reminders_table = db.table('reminders')
+        reminders_table.remove((Query().discord_id == interaction.user.id))
+        await interaction.followup.send(f"All reminders cleared!", ephemeral=True)
 
 def create_stats_embed(filename: str, image_path: str, title: str):
     embed = discord.Embed(
@@ -470,9 +461,9 @@ def create_stats_embed(filename: str, image_path: str, title: str):
 
 def create_plot(x_times, y_values, title, x_label, y_label, output_path, period="day", timezone="UTC"):
     # Convert x_times to the specified timezone
-    #before converting
     tz = pytz.timezone(timezone)
-    x_times = [dt.astimezone(tz) for dt in x_times]
+    if x_times and isinstance(x_times[0], datetime.datetime):
+        x_times = [dt.astimezone(tz) for dt in x_times]
 
     plt.style.use('seaborn-v0_8')
     plt.figure(figsize=(12, 6), facecolor='white')
@@ -491,7 +482,8 @@ def create_plot(x_times, y_values, title, x_label, y_label, output_path, period=
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
     elif period == "week":
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M", tz=pytz.timezone(timezone)))
-        ax.xaxis.set_major_locator(mdates.HourLocator(interval=12))
+        # only show midnight and noon
+        ax.xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 12], interval=1))
     elif period == "month":
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d", tz=pytz.timezone(timezone)))
         ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
@@ -513,7 +505,6 @@ def create_plot(x_times, y_values, title, x_label, y_label, output_path, period=
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-
 
 async def period_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     periods = ["day", "week", "month", "year"]
@@ -542,8 +533,7 @@ async def timezone_autocomplete(interaction: discord.Interaction, current: str) 
 @app_commands.autocomplete(period=period_autocomplete, timezone=timezone_autocomplete)
 async def stats(interaction: discord.Interaction, period: str = "day", timezone: str = "UTC"):
     await interaction.response.defer()
-    logging.info(f"Stats command invoked with period: {period}, timezone: {timezone} by user {interaction.user} and interaction id {interaction.id} in {interaction.guild}.")
-
+    logging.info(f"Stats command invoked with period: {period}, timezone: {timezone} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     # for testing this should send an embed with player count numbers from the database
     # for this we need to read from the tinydb and only display the player counts
