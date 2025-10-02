@@ -271,11 +271,11 @@ async def on_ready():
         continue """
     try:
         # Clear all existing commands from the guild before syncing new ones
-        guild = discord.Object(id=947159380401483878)
-        print("Clearing existing guild commands...")
-        bot.tree.clear_commands(guild=guild)
-        await bot.tree.sync(guild=guild)
-        print("Cleared existing commands.")
+        # guild = discord.Object(id=947159380401483878)
+        # print("Clearing existing guild commands...")
+        # bot.tree.clear_commands(guild=guild)
+        # await bot.tree.sync(guild=guild)
+        # print("Cleared existing commands.")
         
         # Now sync the new commands
         print("Syncing new commands...")
