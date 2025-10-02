@@ -269,9 +269,28 @@ async def on_ready():
         print(f'Deleted commands from {guildId}!')
         continue """
 
+    # Add command groups to the tree before syncing
+    bot.tree.add_command(reminder_group)
+    
+    # Debug: Check what commands are in the group
+    print(f"Reminder group has {len(reminder_group.commands)} commands:")
+    for cmd in reminder_group.commands:
+        print(f"  - {cmd.name}: {cmd.description}")
+    
+    # Debug: Check what commands are in the tree
+    print(f"Bot tree has {len(bot.tree.get_commands())} total commands")
+
     try:
-        synced = await bot.tree.sync(guild=None)
-        print(f"Synced {len(synced)} slash commands.")
+        # Sync to a specific guild for faster updates during development
+        guild = discord.Object(id=947159381101916180)  # Replace with your server ID
+        synced = await bot.tree.sync(guild=guild)
+        print(f"Synced {len(synced)} slash commands to guild.")
+        for cmd in synced:
+            print(f"  - Synced: {cmd.name} ({type(cmd).__name__})")
+        
+        # Global sync (takes up to 1 hour to update) - uncomment for production
+        # synced = await bot.tree.sync(guild=None)
+        # print(f"Synced {len(synced)} slash commands globally.")
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
