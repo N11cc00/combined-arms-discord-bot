@@ -36,7 +36,9 @@ icon_url = "https://cdn.discordapp.com/attachments/947159381101916183/1419453031
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Create and add the group to the tree immediately
 reminder_group = app_commands.Group(name="reminder", description="Commands to interact with reminders for players.")
+bot.tree.add_command(reminder_group)
 
 def create_current_discord_timestamp(f: str):    # use current time zone
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -269,9 +271,6 @@ async def on_ready():
         print(f'Deleted commands from {guildId}!')
         continue """
 
-    # Add command groups to the tree before syncing
-    bot.tree.add_command(reminder_group)
-    
     # Debug: Check what commands are in the group
     print(f"Reminder group has {len(reminder_group.commands)} commands:")
     for cmd in reminder_group.commands:
