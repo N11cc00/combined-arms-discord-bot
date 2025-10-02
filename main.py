@@ -426,11 +426,11 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
 
 # sets a reminder for a nickname add command
 @reminder_group.command(name="add", description="Set a reminder for when a player is in a game.")
-async def reminder(interaction: discord.Interaction, name: str):
+async def reminder(interaction: discord.Interaction, playername: str):
     await interaction.response.defer()
-    logging.info(f"Reminder add command invoked with name: {name} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
+    logging.info(f"Reminder add command invoked with name: {playername} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
-    name = name.lower().strip()
+    playername = playername.lower().strip()
     with TinyDB('games_db.json') as db:
         reminders_table = db.table('reminders')
 
@@ -438,19 +438,19 @@ async def reminder(interaction: discord.Interaction, name: str):
         doc = reminders_table.get(User.discord_id == interaction.user.id)
         if doc:
             names = doc.get("names", [])
-            if name not in names:
-                names.append(name)
+            if playername not in names:
+                names.append(playername)
             else:
-                await interaction.followup.send(f"Reminder for {name} already set!")
+                await interaction.followup.send(f"Reminder for {playername} already set!")
                 return
             # Update the document
             reminders_table.update({"names": names}, User.discord_id == interaction.user.id)
         else:
             # Insert new document if not found
-            reminders_table.insert({"discord_id": interaction.user.id, "names": [name]})
+            reminders_table.insert({"discord_id": interaction.user.id, "names": [playername]})
 
         # the value should be a python list
-        await interaction.followup.send(f"I'll remind you when {name} is in a game!", ephemeral=True)
+        await interaction.followup.send(f"I'll remind you when {playername} is in a game!", ephemeral=True)
 
 @reminder_group.command(name="clear", description="Clear all your reminders.")
 async def reminder_clear(interaction: discord.Interaction):
