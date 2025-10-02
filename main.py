@@ -427,7 +427,7 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
 # sets a reminder for a nickname add command
 @reminder_group.command(name="add", description="Set a reminder for when a player is in a game.")
 async def reminder_add(interaction: discord.Interaction, playername: str):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     logging.info(f"Reminder add command invoked with name: {playername} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     playername = playername.lower().strip()
@@ -450,17 +450,17 @@ async def reminder_add(interaction: discord.Interaction, playername: str):
             reminders_table.insert({"discord_id": interaction.user.id, "names": [playername]})
 
         # the value should be a python list
-        await interaction.followup.send(f"I'll remind you when {playername} is in a game!", ephemeral=True)
+        await interaction.followup.send(f"I'll remind you when {playername} is in a game.")
 
 @reminder_group.command(name="clear", description="Clear all your reminders.")
 async def reminder_clear(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     logging.info(f"Reminder clear command invoked by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     with TinyDB('games_db.json') as db:
         reminders_table = db.table('reminders')
         reminders_table.remove((Query().discord_id == interaction.user.id))
-        await interaction.followup.send(f"All reminders cleared!", ephemeral=True)
+        await interaction.followup.send(f"All reminders cleared.")
 
 def create_stats_embed(filename: str, image_path: str, title: str):
     embed = discord.Embed(
