@@ -38,7 +38,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Create and add the group to the tree immediately
 reminder_group = app_commands.Group(name="reminder", description="Commands to interact with reminders for players.")
-bot.tree.add_command(reminder_group)
 
 def create_current_discord_timestamp(f: str):    # use current time zone
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -270,21 +269,7 @@ async def on_ready():
         await bot.tree.sync(guild=guild)
         print(f'Deleted commands from {guildId}!')
         continue """
-
-    # Debug: Check what commands are in the group
-    print(f"Reminder group has {len(reminder_group.commands)} commands:")
-    for cmd in reminder_group.commands:
-        print(f"  - {cmd.name}: {cmd.description}")
-    
-    # Debug: Check what commands are in the tree
-    print(f"Bot tree has {len(bot.tree.get_commands())} total commands")
-
     try:
-        # First, let's check what guilds the bot is in
-        print(f"Bot is in {len(bot.guilds)} guilds:")
-        for guild in bot.guilds:
-            print(f"  - {guild.name} (ID: {guild.id})")
-        
         # Clear all existing commands from the guild before syncing new ones
         guild = discord.Object(id=947159380401483878)
         print("Clearing existing guild commands...")
@@ -294,7 +279,7 @@ async def on_ready():
         
         # Now sync the new commands
         print("Syncing new commands...")
-        synced = await bot.tree.sync(guild=guild)
+        synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands to guild.")
         for cmd in synced:
             print(f"  - Synced: {cmd.name} ({type(cmd).__name__})")
@@ -441,7 +426,6 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
 
 # sets a reminder for a nickname add command
 @reminder_group.command(name="add", description="Set a reminder for when a player is in a game.")
-@app_commands.describe(name="Name of the player to set a reminder for")
 async def reminder(interaction: discord.Interaction, name: str):
     await interaction.response.defer()
     logging.info(f"Reminder add command invoked with name: {name} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
@@ -629,4 +613,5 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
     # embed = create_stats_embed("stats.png", "last_24_hours.png", f"Combined Arms Player Statistics - Last {period.capitalize()}")
     # await interaction.followup.send(embed=embed, file=discord.File("last_24_hours.png"))
 
+bot.tree.add_command(reminder_group)
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
