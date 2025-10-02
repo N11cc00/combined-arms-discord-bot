@@ -281,8 +281,20 @@ async def on_ready():
     print(f"Bot tree has {len(bot.tree.get_commands())} total commands")
 
     try:
-        # Sync to a specific guild for faster updates during development
-        guild = discord.Object(id=947159380401483878)  # Replace with your server ID
+        # First, let's check what guilds the bot is in
+        print(f"Bot is in {len(bot.guilds)} guilds:")
+        for guild in bot.guilds:
+            print(f"  - {guild.name} (ID: {guild.id})")
+        
+        # Clear all existing commands from the guild before syncing new ones
+        guild = discord.Object(id=947159380401483878)
+        print("Clearing existing guild commands...")
+        bot.tree.clear_commands(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print("Cleared existing commands.")
+        
+        # Now sync the new commands
+        print("Syncing new commands...")
         synced = await bot.tree.sync(guild=guild)
         print(f"Synced {len(synced)} slash commands to guild.")
         for cmd in synced:
