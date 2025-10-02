@@ -282,7 +282,7 @@ async def on_ready():
 
     try:
         # Sync to a specific guild for faster updates during development
-        guild = discord.Object(id=947159381101916180)  # Replace with your server ID
+        guild = discord.Object(id=947159380401483878)  # Replace with your server ID
         synced = await bot.tree.sync(guild=guild)
         print(f"Synced {len(synced)} slash commands to guild.")
         for cmd in synced:
