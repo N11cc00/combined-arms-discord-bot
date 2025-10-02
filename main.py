@@ -426,7 +426,7 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
 
 # sets a reminder for a nickname add command
 @reminder_group.command(name="add", description="Set a reminder for when a player is in a game.")
-async def reminder(interaction: discord.Interaction, playername: str):
+async def reminder_add(interaction: discord.Interaction, playername: str):
     await interaction.response.defer()
     logging.info(f"Reminder add command invoked with name: {playername} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
