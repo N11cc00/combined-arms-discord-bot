@@ -77,13 +77,22 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     else:
         relevant_games = ca_games
 
-    newest_version = get_newest_version(relevant_games)
-    if not show_outdated:
-        relevant_games = [game for game in relevant_games if version.parse(game.get("version", "0.0.0")) >= newest_version
-                         or ("dev" in game.get("version", "").lower()) or ("pre" in game.get("version", "").lower())]
-
     if not relevant_games:
         embed.description = "No Combined Arms games found."
+
+    # devtest/prereleases
+    games_devtest = [game for game in relevant_games if ("dev" in game.get("version", "").lower()) 
+        or ("pre" in game.get("version", "").lower())]
+    
+    # normal games
+    games_normal = [game for game in relevant_games if game not in games_devtest]
+
+    newest_version = get_newest_version(games_normal)
+    if not show_outdated:
+        games_normal = [game for game in games_normal if version.parse(game.get("version", "0.0.0")) >= newest_version]
+
+    relevant_games = games_normal + games_devtest
+
 
     # Group games by version
     version_groups = {}
