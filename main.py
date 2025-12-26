@@ -77,13 +77,22 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     else:
         relevant_games = ca_games
 
-    newest_version = get_newest_version(relevant_games)
-    if not show_outdated:
-        relevant_games = [game for game in relevant_games if version.parse(game.get("version", "0.0.0")) >= newest_version
-                         or ("dev" in game.get("version", "").lower()) or ("pre" in game.get("version", "").lower())]
-
     if not relevant_games:
         embed.description = "No Combined Arms games found."
+
+    # devtest/prereleases
+    games_devtest = [game for game in relevant_games if ("dev" in game.get("version", "").lower()) 
+        or ("pre" in game.get("version", "").lower())]
+    
+    # normal games
+    games_normal = [game for game in relevant_games if game not in games_devtest]
+
+    newest_version = get_newest_version(games_normal)
+    if not show_outdated:
+        games_normal = [game for game in games_normal if version.parse(game.get("version", "0.0.0")) >= newest_version]
+
+    relevant_games = games_normal + games_devtest
+
 
     # Group games by version
     version_groups = {}
@@ -382,6 +391,40 @@ async def games(interaction: discord.Interaction, outdated: bool = False, empty:
     embed = create_games_overview_embed(data, timestamp_format="F", show_empty=empty, show_outdated=outdated)
 
     await interaction.followup.send(embed=embed)
+
+def aggregate_average_hourly_player_counts():
+    # goes over the dataset stored in the default table and calculates the average player count for every hour
+
+    all_entries = []
+    with TinyDB('games_db.json') as db:
+        avg_player_count_table = db.table("avg_hourly_player_count")
+        # get the highest key in this table, the keys are timestamps
+        all_entries = avg_player_count_table.all()
+
+    biggest_timestamp = None
+    if not all_entries:
+        logging.info("No entries in avg_hourly_player_count table yet.")
+        # set start of 2025 as we dont have earlier data
+        biggest_timestamp = {'timestamp': int(datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())}
+    else:
+        biggest_timestamp = max(all_entries, key=lambda x: x['timestamp'])
+    biggest_datetime = datetime.datetime.fromtimestamp(biggest_timestamp['timestamp'], tz=datetime.timezone.utc)
+
+    # start from the hour after the biggest timestamp
+    start_hour = (biggest_datetime + datetime.timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+
+    now = datetime.datetime.now(datetime.timezone.utc).replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
+    current_hour = start_hour
+
+    inserted_entries = 0
+    while current_hour <= now:
+        avg_count = get_average_player_count_on_hour(current_hour)
+        with TinyDB('games_db.json') as db:
+            avg_player_count_table = db.table("avg_hourly_player_count")
+            avg_player_count_table.insert({"timestamp": int(current_hour.timestamp()), "average_players": avg_count})
+            current_hour += datetime.timedelta(hours=1)
+            inserted_entries += 1
+    logging.info(f"Inserted {inserted_entries} new average hourly player count entries for {start_hour} to {now}.")
 
 def get_average_player_count_on_day(day: datetime.date) -> float:
     with TinyDB('games_db.json') as db:
