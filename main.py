@@ -419,7 +419,7 @@ def aggregate_average_hourly_player_counts():
     inserted_entries = 0
     while current_hour <= now:
         avg_count = get_average_player_count_on_hour(current_hour)
-        if avg_count == -1:
+        if avg_count < 0:
             logging.info(f"No data for hour starting at {current_hour}, skipping.")
             current_hour += datetime.timedelta(hours=1)
             continue
