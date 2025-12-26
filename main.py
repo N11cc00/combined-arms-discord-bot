@@ -402,7 +402,7 @@ def aggregate_average_hourly_player_counts():
         all_entries = avg_player_count_table.all()
 
     biggest_timestamp = None
-    if not all_entries:
+    if len(all_entries) == 0:
         logging.info("No entries in avg_hourly_player_count table yet.")
         # set start of 2025 as we dont have earlier data
         biggest_timestamp = {'timestamp': int(datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())}
@@ -419,6 +419,10 @@ def aggregate_average_hourly_player_counts():
     inserted_entries = 0
     while current_hour <= now:
         avg_count = get_average_player_count_on_hour(current_hour)
+        if avg_count == -1:
+            logging.info(f"No data for hour starting at {current_hour}, skipping.")
+            current_hour += datetime.timedelta(hours=1)
+            continue
         with TinyDB('games_db.json') as db:
             avg_player_count_table = db.table("avg_hourly_player_count")
             avg_player_count_table.insert({"timestamp": int(current_hour.timestamp()), "average_players": avg_count})
@@ -454,6 +458,10 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
         end_timestamp = int(hour.replace(minute=59, second=59, microsecond=999999, tzinfo=datetime.timezone.utc).timestamp())
 
         entries = db.search((Game.timestamp >= start_timestamp) & (Game.timestamp <= end_timestamp))
+
+    # if there are no entries, return an error value
+    if not entries:
+        return -1
 
     # structure of an entry is {"timestamp": 1234567890, "games": [...]}
     # data is already filtered
@@ -656,5 +664,6 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
     # embed = create_stats_embed("stats.png", "last_24_hours.png", f"Combined Arms Player Statistics - Last {period.capitalize()}")
     # await interaction.followup.send(embed=embed, file=discord.File("last_24_hours.png"))
 
-bot.tree.add_command(reminder_group)
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+if __name__ == "__main__":
+    bot.tree.add_command(reminder_group)
+    bot.run(os.getenv("DISCORD_BOT_TOKEN"))
