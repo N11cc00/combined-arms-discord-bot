@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from tinydb import TinyDB
+from tqdm import tqdm
 
 def migrate_tinydb_to_sqlite(tinydb_path, sqlite_path):
     """
@@ -51,11 +52,13 @@ def migrate_tinydb_to_sqlite(tinydb_path, sqlite_path):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_reminders_discord_id ON reminders(discord_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_avg_timestamp ON avg_hourly_player_count(timestamp)')
     
-    print("Migrating default table (games data)...")
     # Migrate default table (games data)
     default_table = db.table('_default')
+    games_data = default_table.all()
     games_count = 0
-    for entry in default_table.all():
+    
+    print("Migrating default table (games data)...")
+    for entry in tqdm(games_data, desc="Games", unit="entry"):
         timestamp = entry.get('timestamp')
         games = entry.get('games', [])
         # Store games as JSON string
@@ -66,13 +69,13 @@ def migrate_tinydb_to_sqlite(tinydb_path, sqlite_path):
         ''', (timestamp, games_json))
         games_count += 1
     
-    print(f"Migrated {games_count} game entries.")
-    
     # Migrate reminders table
-    print("Migrating reminders table...")
     reminders_table = db.table('reminders')
+    reminders_data = reminders_table.all()
     reminders_count = 0
-    for entry in reminders_table.all():
+    
+    print("\nMigrating reminders table...")
+    for entry in tqdm(reminders_data, desc="Reminders", unit="entry"):
         discord_id = entry.get('discord_id')
         names = entry.get('names', [])
         # Store names as JSON string
@@ -82,8 +85,6 @@ def migrate_tinydb_to_sqlite(tinydb_path, sqlite_path):
             INSERT INTO reminders (discord_id, names) VALUES (?, ?)
         ''', (discord_id, names_json))
         reminders_count += 1
-    
-    print(f"Migrated {reminders_count} reminder entries.")
     
     # # Migrate avg_hourly_player_count table
     # print("Migrating avg_hourly_player_count table...")
