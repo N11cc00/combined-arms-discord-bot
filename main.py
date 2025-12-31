@@ -6,7 +6,8 @@ import asyncio
 import dotenv
 import os
 import datetime
-from tinydb import TinyDB, Query
+import sqlite3
+import json
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib.dates as mdates
@@ -151,62 +152,78 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
     
 def save_data_to_db(data):
     # only save Combined Arms games with at least one player to reduce db size
-    with TinyDB('games_db.json') as db:
-        ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    
+    ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
 
-        # if there are no games, still save an entry with empty games list
-        # to indicate that the bot was running at that time
+    # if there are no games, still save an entry with empty games list
+    # to indicate that the bot was running at that time
 
-        # remove some keys to save data
-        for game in ca_games:
-            keys_to_remove = ["modwebsite", "modtitle", "modicon32"]
-            for key in keys_to_remove:
-                game.pop(key, None)
+    # remove some keys to save data
+    for game in ca_games:
+        keys_to_remove = ["modwebsite", "modtitle", "modicon32"]
+        for key in keys_to_remove:
+            game.pop(key, None)
 
-            # remove all clients that are bots
-            clients = game.get("clients", [])
-            game["clients"] = [client for client in clients if not client.get("isbot", False)]
+        # remove all clients that are bots
+        clients = game.get("clients", [])
+        game["clients"] = [client for client in clients if not client.get("isbot", False)]
 
-        timestamp_data = {"timestamp": int(datetime.datetime.now(datetime.timezone.utc).timestamp()), "games": ca_games}
-        db.insert(timestamp_data) 
+    timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    games_json = json.dumps(ca_games)
+    
+    cursor.execute('INSERT INTO games (timestamp, games_data) VALUES (?, ?)', (timestamp, games_json))
+    conn.commit()
+    conn.close() 
 
 async def check_for_reminders(data):
-    with TinyDB('games_db.json') as db:
-        reminders_table = db.table('reminders')
-        all_reminders = reminders_table.all()
-        if not all_reminders:
-            return  # No reminders set
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT id, discord_id, names FROM reminders')
+    all_reminders = cursor.fetchall()
+    
+    if not all_reminders:
+        conn.close()
+        return  # No reminders set
 
-        ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
-        active_player_names = set()
-        for game in ca_games:
-            clients = game.get("clients", [])
-            for client in clients:
-                if not client.get("isbot", False):
-                    active_player_names.add(client.get("name", "").lower())
+    ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
+    active_player_names = set()
+    for game in ca_games:
+        clients = game.get("clients", [])
+        for client in clients:
+            if not client.get("isbot", False):
+                active_player_names.add(client.get("name", "").lower())
 
-        # do a query into the table where any of the names in the reminders is in the active_player_names
-        for reminder in all_reminders:
-            discord_id: int = reminder.get("discord_id", 0)
-            names: list[str] = reminder.get("names", [])
-            matched_names = [name for name in names if name.lower() in active_player_names]
-            if matched_names:
-                user = bot.get_user(discord_id)
-                if user is None:
-                    user = await bot.fetch_user(discord_id)
-                if user:
-                    try:
-                        logger.info(f"Sending reminder to user {discord_id} for names: {matched_names}")
-                        await user.send(f"The following players you are tracking are currently online: {', '.join(matched_names)}")
+    # do a query into the table where any of the names in the reminders is in the active_player_names
+    for reminder in all_reminders:
+        reminder_id = reminder[0]
+        discord_id = reminder[1]
+        names = json.loads(reminder[2])
+        
+        matched_names = [name for name in names if name.lower() in active_player_names]
+        if matched_names:
+            user = bot.get_user(discord_id)
+            if user is None:
+                user = await bot.fetch_user(discord_id)
+            if user:
+                try:
+                    logger.info(f"Sending reminder to user {discord_id} for names: {matched_names}")
+                    await user.send(f"The following players you are tracking are currently online: {', '.join(matched_names)}")
 
-                        # remove the matched names from the reminder list
-                        remaining_names = [name for name in names if name.lower() not in active_player_names]
-                        if remaining_names:
-                            reminders_table.update({"names": remaining_names}, Query().discord_id == discord_id)
-                        else:
-                            reminders_table.remove(Query().discord_id == discord_id)
-                    except Exception as e:
-                        logging.error(f"Failed to send reminder to user {discord_id}: {e}")
+                    # remove the matched names from the reminder list
+                    remaining_names = [name for name in names if name.lower() not in active_player_names]
+                    if remaining_names:
+                        cursor.execute('UPDATE reminders SET names = ? WHERE discord_id = ?', 
+                                     (json.dumps(remaining_names), discord_id))
+                    else:
+                        cursor.execute('DELETE FROM reminders WHERE discord_id = ?', (discord_id,))
+                    conn.commit()
+                except Exception as e:
+                    logging.error(f"Failed to send reminder to user {discord_id}: {e}")
+    
+    conn.close()
 
 async def update_presence(data):
     # update the bot's presence
@@ -243,7 +260,7 @@ async def update_bot_task():
             # fetch game data
             data = await fetch_game_data()
 
-            # save data to tinydb, key should be the timestamp
+            # save data to sqlite, key should be the timestamp
             global task_iteration
             if task_iteration % 2 == 0: # Save to DB every 2nd iteration (every minute)
                 save_data_to_db(data)
@@ -395,20 +412,21 @@ async def games(interaction: discord.Interaction, outdated: bool = False, empty:
 def aggregate_average_hourly_player_counts():
     # goes over the dataset stored in the default table and calculates the average player count for every hour
 
-    all_entries = []
-    with TinyDB('games_db.json') as db:
-        avg_player_count_table = db.table("avg_hourly_player_count")
-        # get the highest key in this table, the keys are timestamps
-        all_entries = avg_player_count_table.all()
-
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT timestamp FROM avg_hourly_player_count ORDER BY timestamp DESC LIMIT 1')
+    result = cursor.fetchone()
+    
     biggest_timestamp = None
-    if len(all_entries) == 0:
+    if result is None:
         logging.info("No entries in avg_hourly_player_count table yet.")
         # set start of 2025 as we dont have earlier data
-        biggest_timestamp = {'timestamp': int(datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())}
+        biggest_timestamp = int(datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())
     else:
-        biggest_timestamp = max(all_entries, key=lambda x: x['timestamp'])
-    biggest_datetime = datetime.datetime.fromtimestamp(biggest_timestamp['timestamp'], tz=datetime.timezone.utc)
+        biggest_timestamp = result[0]
+    
+    biggest_datetime = datetime.datetime.fromtimestamp(biggest_timestamp, tz=datetime.timezone.utc)
 
     # start from the hour after the biggest timestamp
     start_hour = (biggest_datetime + datetime.timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
@@ -423,26 +441,33 @@ def aggregate_average_hourly_player_counts():
             logging.info(f"No data for hour starting at {current_hour}, skipping.")
             current_hour += datetime.timedelta(hours=1)
             continue
-        with TinyDB('games_db.json') as db:
-            avg_player_count_table = db.table("avg_hourly_player_count")
-            avg_player_count_table.insert({"timestamp": int(current_hour.timestamp()), "average_players": avg_count})
-            current_hour += datetime.timedelta(hours=1)
-            inserted_entries += 1
+        
+        cursor.execute('INSERT INTO avg_hourly_player_count (timestamp, average_players) VALUES (?, ?)',
+                      (int(current_hour.timestamp()), avg_count))
+        current_hour += datetime.timedelta(hours=1)
+        inserted_entries += 1
+    
+    conn.commit()
+    conn.close()
     logging.info(f"Inserted {inserted_entries} new average hourly player count entries for {start_hour} to {now}.")
 
 def get_average_player_count_on_day(day: datetime.date) -> float:
-    with TinyDB('games_db.json') as db:
-        Game = Query()
-        start_timestamp = int(datetime.datetime.combine(day, datetime.time.min, tzinfo=datetime.timezone.utc).timestamp())
-        end_timestamp = int(datetime.datetime.combine(day, datetime.time.max, tzinfo=datetime.timezone.utc).timestamp())
-        
-        entries = db.search((Game.timestamp >= start_timestamp) & (Game.timestamp <= end_timestamp))
-        
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    
+    start_timestamp = int(datetime.datetime.combine(day, datetime.time.min, tzinfo=datetime.timezone.utc).timestamp())
+    end_timestamp = int(datetime.datetime.combine(day, datetime.time.max, tzinfo=datetime.timezone.utc).timestamp())
+    
+    cursor.execute('SELECT games_data FROM games WHERE timestamp >= ? AND timestamp <= ?',
+                  (start_timestamp, end_timestamp))
+    entries = cursor.fetchall()
+    conn.close()
+    
     # structure of an entry is {"timestamp": 1234567890, "games": [...]}
     # data is already filtered
     total_player_counts = []
     for entry in entries:
-        games = entry.get("games", [])
+        games = json.loads(entry[0])
         total_players = sum(game.get("players", 0) for game in games)
         total_player_counts.append(total_players)
 
@@ -452,12 +477,16 @@ def get_average_player_count_on_day(day: datetime.date) -> float:
     return sum(total_player_counts) / len(total_player_counts)
 
 def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
-    with TinyDB('games_db.json') as db:
-        Game = Query()
-        start_timestamp = int(hour.replace(minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc).timestamp())
-        end_timestamp = int(hour.replace(minute=59, second=59, microsecond=999999, tzinfo=datetime.timezone.utc).timestamp())
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    
+    start_timestamp = int(hour.replace(minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc).timestamp())
+    end_timestamp = int(hour.replace(minute=59, second=59, microsecond=999999, tzinfo=datetime.timezone.utc).timestamp())
 
-        entries = db.search((Game.timestamp >= start_timestamp) & (Game.timestamp <= end_timestamp))
+    cursor.execute('SELECT games_data FROM games WHERE timestamp >= ? AND timestamp <= ?',
+                  (start_timestamp, end_timestamp))
+    entries = cursor.fetchall()
+    conn.close()
 
     # if there are no entries, return an error value
     if not entries:
@@ -467,7 +496,7 @@ def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
     # data is already filtered
     total_player_counts = []
     for entry in entries:
-        games = entry.get("games", [])
+        games = json.loads(entry[0])
         total_players = sum(game.get("players", 0) for game in games)
         total_player_counts.append(total_players)
 
@@ -482,36 +511,47 @@ async def reminder_add(interaction: discord.Interaction, playername: str):
     logging.info(f"Reminder add command invoked with name: {playername} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     playername = playername.lower().strip()
-    with TinyDB('games_db.json') as db:
-        reminders_table = db.table('reminders')
-
-        User = Query()
-        doc = reminders_table.get(User.discord_id == interaction.user.id)
-        if doc:
-            names = doc.get("names", [])
-            if playername not in names:
-                names.append(playername)
-            else:
-                await interaction.followup.send(f"Reminder for {playername} already set!")
-                return
-            # Update the document
-            reminders_table.update({"names": names}, User.discord_id == interaction.user.id)
+    
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT names FROM reminders WHERE discord_id = ?', (interaction.user.id,))
+    result = cursor.fetchone()
+    
+    if result:
+        names = json.loads(result[0])
+        if playername not in names:
+            names.append(playername)
         else:
-            # Insert new document if not found
-            reminders_table.insert({"discord_id": interaction.user.id, "names": [playername]})
-
-        # the value should be a python list
-        await interaction.followup.send(f"I'll remind you when {playername} is in a game.")
+            conn.close()
+            await interaction.followup.send(f"Reminder for {playername} already set!")
+            return
+        # Update the document
+        cursor.execute('UPDATE reminders SET names = ? WHERE discord_id = ?',
+                      (json.dumps(names), interaction.user.id))
+    else:
+        # Insert new document if not found
+        cursor.execute('INSERT INTO reminders (discord_id, names) VALUES (?, ?)',
+                      (interaction.user.id, json.dumps([playername])))
+    
+    conn.commit()
+    conn.close()
+    
+    # the value should be a python list
+    await interaction.followup.send(f"I'll remind you when {playername} is in a game.")
 
 @reminder_group.command(name="clear", description="Clear all your reminders.")
 async def reminder_clear(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     logging.info(f"Reminder clear command invoked by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
-    with TinyDB('games_db.json') as db:
-        reminders_table = db.table('reminders')
-        reminders_table.remove((Query().discord_id == interaction.user.id))
-        await interaction.followup.send(f"All reminders cleared.")
+    conn = sqlite3.connect('games_db.sqlite')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM reminders WHERE discord_id = ?', (interaction.user.id,))
+    conn.commit()
+    conn.close()
+    
+    await interaction.followup.send(f"All reminders cleared.")
 
 def create_stats_embed(filename: str, image_path: str, title: str):
     embed = discord.Embed(
@@ -601,7 +641,7 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
     logging.info(f"Stats command invoked with period: {period}, timezone: {timezone} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     # for testing this should send an embed with player count numbers from the database
-    # for this we need to read from the tinydb and only display the player counts
+    # for this we need to read from the sqlite database and only display the player counts
     period = period.lower()
     
     # check that timezone is a valid timezone
