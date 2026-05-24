@@ -14,6 +14,7 @@ import matplotlib.dates as mdates
 from discord import app_commands
 import pytz
 import logging
+import re
 
 
 dotenv.load_dotenv()
@@ -54,6 +55,10 @@ async def fetch_game_data():
             data = await resp.json()
             return data
 
+
+def has_letters(s: str) -> bool:
+    return re.search('[a-zA-Z]', s) != None
+
 def create_games_overview_embed(games, timestamp_format="F", show_empty=False, show_outdated=False):
     embed = discord.Embed(
         title="Combined Arms Games - " + create_current_discord_timestamp(timestamp_format),
@@ -82,11 +87,12 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
         embed.description = "No Combined Arms games found."
 
     # devtest/prereleases
-    games_devtest = [game for game in relevant_games if ("dev" in game.get("version", "").lower()) 
+    games_devtest = [game for game in relevant_games if ("dev" in game.get("version", "").lower())
         or ("pre" in game.get("version", "").lower())]
-    
-    # normal games
-    games_normal = [game for game in relevant_games if game not in games_devtest]
+
+    # normal games, the version should not contain any letters
+    games_normal = [game for game in relevant_games if (game not in games_devtest and
+                    not has_letters(game.get("version", "")))]
 
     newest_version = get_newest_version(games_normal)
     if not show_outdated:
@@ -134,10 +140,10 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
 
                 # make each player name cursive (add *)
                 player_names = [f"*{name}*" for name in player_names]
-                
+
                 # join player names with comma
                 player_list_str = ", ".join(player_names)
-                
+
                 lines.append(f"{state_emoji}{protected_emoji} {name} - **{players}/{max_players}** - {player_list_str}")
 
             else:
@@ -149,12 +155,12 @@ def create_games_overview_embed(games, timestamp_format="F", show_empty=False, s
 
     embed.set_footer(text="Data from openra.net/games", icon_url=icon_url)
     return embed
-    
+
 def save_data_to_db(data):
     # only save Combined Arms games with at least one player to reduce db size
     conn = sqlite3.connect('games_db.sqlite')
     cursor = conn.cursor()
-    
+
     ca_games = [game for game in data if game.get("mod", "").lower() == mode_name and game.get("players", 0) > 0]
 
     # if there are no games, still save an entry with empty games list
@@ -172,18 +178,18 @@ def save_data_to_db(data):
 
     timestamp = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     games_json = json.dumps(ca_games)
-    
+
     cursor.execute('INSERT INTO games (timestamp, games_data) VALUES (?, ?)', (timestamp, games_json))
     conn.commit()
-    conn.close() 
+    conn.close()
 
 async def check_for_reminders(data):
     conn = sqlite3.connect('games_db.sqlite')
     cursor = conn.cursor()
-    
+
     cursor.execute('SELECT id, discord_id, names FROM reminders')
     all_reminders = cursor.fetchall()
-    
+
     if not all_reminders:
         conn.close()
         return  # No reminders set
@@ -201,7 +207,7 @@ async def check_for_reminders(data):
         reminder_id = reminder[0]
         discord_id = reminder[1]
         names = json.loads(reminder[2])
-        
+
         matched_names = [name for name in names if name.lower() in active_player_names]
         if matched_names:
             user = bot.get_user(discord_id)
@@ -215,14 +221,14 @@ async def check_for_reminders(data):
                     # remove the matched names from the reminder list
                     remaining_names = [name for name in names if name.lower() not in active_player_names]
                     if remaining_names:
-                        cursor.execute('UPDATE reminders SET names = ? WHERE discord_id = ?', 
+                        cursor.execute('UPDATE reminders SET names = ? WHERE discord_id = ?',
                                      (json.dumps(remaining_names), discord_id))
                     else:
                         cursor.execute('DELETE FROM reminders WHERE discord_id = ?', (discord_id,))
                     conn.commit()
                 except Exception as e:
                     logging.error(f"Failed to send reminder to user {discord_id}: {e}")
-    
+
     conn.close()
 
 async def update_presence(data):
@@ -241,7 +247,7 @@ async def update_presence(data):
     )
     await bot.change_presence(activity=activity)
     return
- 
+
 async def update_bot_task():
     import traceback
     await bot.wait_until_ready()
@@ -302,14 +308,14 @@ async def on_ready():
         # bot.tree.clear_commands(guild=guild)
         # await bot.tree.sync(guild=guild)
         # print("Cleared existing commands.")
-        
+
         # Now sync the new commands
         print("Syncing new commands...")
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands to guild.")
         for cmd in synced:
             print(f"  - Synced: {cmd.name} ({type(cmd).__name__})")
-        
+
         # Global sync (takes up to 1 hour to update) - uncomment for production
         # synced = await bot.tree.sync(guild=None)
         # print(f"Synced {len(synced)} slash commands globally.")
@@ -328,7 +334,7 @@ async def on_ready():
         if not channel:
             print(f"Channel with ID {os.getenv('GAMES_CHANNEL_ID')} not found.")
             return
-        
+
         if message_id == 0:
             # message does not exist, create it
             message = await channel.send("Games overview...")
@@ -351,11 +357,11 @@ async def players(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"Error fetching data: {e}")
         return
-    
+
     # filter for Combined Arms games
     ca_games = [game for game in data if game.get("mod", "").lower()
                 == mode_name]
-    
+
     # count players
     total_players = sum(game.get("players", 0) for game in ca_games)
 
@@ -376,14 +382,14 @@ async def players(interaction: discord.Interaction):
                 player_names.append(client.get("name", "Unknown"))
 
             player_names = [f"{name}" for name in player_names]
-            
+
             # join player names with comma
             players_string += ", ".join(player_names) + ", "
 
     if total_players == 0:
         await interaction.followup.send("No players found.")
         return
-    
+
     # remove last comma and space
     players_string = players_string[:-2]
 
@@ -414,10 +420,10 @@ def aggregate_average_hourly_player_counts():
 
     conn = sqlite3.connect('games_db.sqlite')
     cursor = conn.cursor()
-    
+
     cursor.execute('SELECT timestamp FROM avg_hourly_player_count ORDER BY timestamp DESC LIMIT 1')
     result = cursor.fetchone()
-    
+
     biggest_timestamp = None
     if result is None:
         logging.info("No entries in avg_hourly_player_count table yet.")
@@ -425,7 +431,7 @@ def aggregate_average_hourly_player_counts():
         biggest_timestamp = int(datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp())
     else:
         biggest_timestamp = result[0]
-    
+
     biggest_datetime = datetime.datetime.fromtimestamp(biggest_timestamp, tz=datetime.timezone.utc)
 
     # start from the hour after the biggest timestamp
@@ -441,12 +447,12 @@ def aggregate_average_hourly_player_counts():
             logging.info(f"No data for hour starting at {current_hour}, skipping.")
             current_hour += datetime.timedelta(hours=1)
             continue
-        
+
         cursor.execute('INSERT INTO avg_hourly_player_count (timestamp, average_players) VALUES (?, ?)',
                       (int(current_hour.timestamp()), avg_count))
         current_hour += datetime.timedelta(hours=1)
         inserted_entries += 1
-    
+
     conn.commit()
     conn.close()
     logging.info(f"Inserted {inserted_entries} new average hourly player count entries for {start_hour} to {now}.")
@@ -454,15 +460,15 @@ def aggregate_average_hourly_player_counts():
 def get_average_player_count_on_day(day: datetime.date) -> float:
     conn = sqlite3.connect('games_db.sqlite')
     cursor = conn.cursor()
-    
+
     start_timestamp = int(datetime.datetime.combine(day, datetime.time.min, tzinfo=datetime.timezone.utc).timestamp())
     end_timestamp = int(datetime.datetime.combine(day, datetime.time.max, tzinfo=datetime.timezone.utc).timestamp())
-    
+
     cursor.execute('SELECT games_data FROM games WHERE timestamp >= ? AND timestamp <= ?',
                   (start_timestamp, end_timestamp))
     entries = cursor.fetchall()
     conn.close()
-    
+
     # structure of an entry is {"timestamp": 1234567890, "games": [...]}
     # data is already filtered
     total_player_counts = []
@@ -479,7 +485,7 @@ def get_average_player_count_on_day(day: datetime.date) -> float:
 def get_average_player_count_on_hour(hour: datetime.datetime) -> float:
     conn = sqlite3.connect('games_db.sqlite')
     cursor = conn.cursor()
-    
+
     start_timestamp = int(hour.replace(minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc).timestamp())
     end_timestamp = int(hour.replace(minute=59, second=59, microsecond=999999, tzinfo=datetime.timezone.utc).timestamp())
 
@@ -511,13 +517,13 @@ async def reminder_add(interaction: discord.Interaction, playername: str):
     logging.info(f"Reminder add command invoked with name: {playername} by user {interaction.user} ({interaction.user.id}) and interaction id {interaction.id} in {interaction.guild}.")
 
     playername = playername.lower().strip()
-    
+
     conn = sqlite3.connect('games_db.sqlite')
     cursor = conn.cursor()
-    
+
     cursor.execute('SELECT names FROM reminders WHERE discord_id = ?', (interaction.user.id,))
     result = cursor.fetchone()
-    
+
     if result:
         names = json.loads(result[0])
         if playername not in names:
@@ -533,10 +539,10 @@ async def reminder_add(interaction: discord.Interaction, playername: str):
         # Insert new document if not found
         cursor.execute('INSERT INTO reminders (discord_id, names) VALUES (?, ?)',
                       (interaction.user.id, json.dumps([playername])))
-    
+
     conn.commit()
     conn.close()
-    
+
     # the value should be a python list
     await interaction.followup.send(f"I'll remind you when {playername} is in a game.")
 
@@ -550,7 +556,7 @@ async def reminder_clear(interaction: discord.Interaction):
     cursor.execute('DELETE FROM reminders WHERE discord_id = ?', (interaction.user.id,))
     conn.commit()
     conn.close()
-    
+
     await interaction.followup.send(f"All reminders cleared.")
 
 def create_stats_embed(filename: str, image_path: str, title: str):
@@ -573,7 +579,7 @@ def create_plot(x_times, y_values, title, x_label, y_label, output_path, period=
     plt.style.use('seaborn-v0_8')
     plt.figure(figsize=(12, 6), facecolor='white')
     ax = plt.gca()
-    
+
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
 
     if y_values:  # Ensure y_values is not empty
@@ -581,7 +587,7 @@ def create_plot(x_times, y_values, title, x_label, y_label, output_path, period=
 
     if x_times:  # Ensure x_times is not empty
         ax.set_xlim(left=min(x_times), right=max(x_times))
-    
+
     if period == "day":
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=pytz.timezone(timezone)))
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
@@ -632,9 +638,9 @@ async def timezone_autocomplete(interaction: discord.Interaction, current: str) 
 
 @bot.tree.command(name="stats", description="Shows online player statistics for Combined Arms.")
 @app_commands.describe(
-    period="Time period for stats: day, week, month, year. Default: day", 
+    period="Time period for stats: day, week, month, year. Default: day",
     timezone="IANA timezone for stats. Default: UTC"
-)                  
+)
 @app_commands.autocomplete(period=period_autocomplete, timezone=timezone_autocomplete)
 async def stats(interaction: discord.Interaction, period: str = "day", timezone: str = "UTC"):
     await interaction.response.defer()
@@ -643,7 +649,7 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
     # for testing this should send an embed with player count numbers from the database
     # for this we need to read from the sqlite database and only display the player counts
     period = period.lower()
-    
+
     # check that timezone is a valid timezone
     try:
         pytz.timezone(timezone)
@@ -663,7 +669,7 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
             player_counts = [get_average_player_count_on_hour(hour) for hour in last_24_hours]
 
             # create a plot with matplotlib
-            create_plot(last_24_hours, player_counts, "Average Player Count in the Last 24 Hours", f"Time", "Average Player Count", 
+            create_plot(last_24_hours, player_counts, "Average Player Count in the Last 24 Hours", f"Time", "Average Player Count",
                         "last_day.png", period="day", timezone=timezone)
         case "week":
             now = datetime.datetime.now(datetime.timezone.utc)
@@ -673,7 +679,7 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
             player_counts = [get_average_player_count_on_hour(hour) for hour in last_168_hours]
 
             # create a plot with matplotlib
-            create_plot(last_168_hours, player_counts, "Average Player Count in the Last Week", f"Time", "Average Player Count", 
+            create_plot(last_168_hours, player_counts, "Average Player Count in the Last Week", f"Time", "Average Player Count",
                         "last_week.png", period="week", timezone=timezone)
         case "month":
             now = datetime.datetime.now(datetime.timezone.utc)
@@ -682,7 +688,7 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
             player_counts = [get_average_player_count_on_day(day) for day in last_30_days]
 
             # create a plot with matplotlib
-            create_plot(last_30_days, player_counts, "Average Player Count in the Last Month", f"Time", "Average Player Count", 
+            create_plot(last_30_days, player_counts, "Average Player Count in the Last Month", f"Time", "Average Player Count",
                         "last_month.png", period="month", timezone=timezone)
         case "year":
             # do this for every day
@@ -692,7 +698,7 @@ async def stats(interaction: discord.Interaction, period: str = "day", timezone:
             player_counts = [get_average_player_count_on_day(day) for day in last_365_days]
 
             # create a plot with matplotlib
-            create_plot(last_365_days, player_counts, "Average Player Count in the Last Year", f"Time", "Average Player Count", 
+            create_plot(last_365_days, player_counts, "Average Player Count in the Last Year", f"Time", "Average Player Count",
                         "last_year.png", period="year", timezone=timezone)
         case _:
             await interaction.followup.send("Invalid period. Available: day, week, month, year.")
